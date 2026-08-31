@@ -181,3 +181,39 @@ test('every decision lands in the log, in order, with a reason', async () => {
   assert.deepEqual(state.decisions.map((d) => d.seq), [0, 1, 2]);
   assert.ok(state.decisions.every((d) => d.reason.length > 0));
 });
+
+test('a throwing holds predicate refuses admission instead of escaping', async () => {
+  const bomb: Lesson = {
+    id: 'lesson-bomb',
+    input: 'sum 2 and 2',
+    holds: () => {
+      throw new Error('predicate exploded');
+    },
+    note: 'x',
+    review: { reviewedBy: 'miguel' }
+  };
+  const step = await admitLesson(createForge(art('model-v1')), bomb, run);
+  assert.equal(step.decision.outcome, 'refused');
+  assert.match(step.decision.reason, /could not be evaluated.*exploded/);
+});
+
+test('screening runs once: unknown cannot be cleared by re-rolling a flaky probe', async () => {
+  let state = await forgeWithLesson();
+  ({ state } = propose(state, art('model-broken', 'no-such-table')));
+  ({ state } = await screen(state, 'model-broken', run));
+  assert.ok(state.candidates['model-broken'].immunity.some((r) => r.outcome === 'unknown'));
+  const again = await screen(state, 'model-broken', run);
+  assert.equal(again.decision.outcome, 'refused');
+  assert.match(again.decision.reason, /unknown stays sticky/);
+});
+
+test('rollback demotes the rolled-back candidate in the record', async () => {
+  let state = await forgeWithLesson();
+  ({ state } = propose(state, art('model-v2')));
+  ({ state } = await screen(state, 'model-v2', run));
+  ({ state } = trial(state, 'model-v2', { improved: true, detail: 'y' }));
+  ({ state } = promote(state, 'model-v2'));
+  ({ state } = rollback(state, 'live regression'));
+  assert.equal(state.incumbent.id, 'model-v1');
+  assert.equal(state.candidates['model-v2'].status, 'rolled-back');
+});

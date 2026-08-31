@@ -1,18 +1,24 @@
 {
   "name": "training-forge",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Gated self-improvement: lessons that must reproduce, an immunity gate that only grows, promote only on a won trial, rollback in one call.",
   "type": "module",
-  "main": "./src/index.ts",
+  "main": "./dist/index.js",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
   },
   "files": [
+    "dist",
     "src"
   ],
   "scripts": {
-    "test": "node --experimental-strip-types --test \"test/*.test.ts\"",
-    "typecheck": "tsc --noEmit"
+    "test": "node --test \"test/*.test.ts\"",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json",
+    "prepare": "npm run build"
   },
   "repository": {
     "type": "git",
@@ -31,10 +37,11 @@
     "typescript"
   ],
   "engines": {
-    "node": ">=22.6"
+    "node": ">=22.18"
   },
   "devDependencies": {
     "@types/node": "^26.4.0",
     "typescript": "^5.7.0"
-  }
+  },
+  "types": "./dist/index.d.ts"
 }

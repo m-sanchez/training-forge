@@ -1,9 +1,9 @@
 # training-forge
 
 ![TypeScript](https://img.shields.io/badge/TypeScript-erasable_syntax-3178C6?logo=typescript&logoColor=white)
-![Node](https://img.shields.io/badge/node-%3E%3D22.6-5FA04E?logo=nodedotjs&logoColor=white)
+![Node](https://img.shields.io/badge/node-%3E%3D22.18-5FA04E?logo=nodedotjs&logoColor=white)
 ![Dependencies](https://img.shields.io/badge/dependencies-0-B45309)
-![Tests](https://img.shields.io/badge/tests-11_passing-2F6F44)
+[![CI](https://github.com/m-sanchez/training-forge/actions/workflows/test.yml/badge.svg)](https://github.com/m-sanchez/training-forge/actions/workflows/test.yml)
 ![License](https://img.shields.io/badge/license-MIT-6E6E6E)
 
 Gated self-improvement. A model that learns from itself can just as easily
@@ -60,16 +60,35 @@ let state = createForge({ id: 'model-v1', ref: 'ollama:mine:v1' });
 state.decisions;   // every step, in order, with its reason
 ```
 
-## Run
+## Install
 
 ```bash
-npm install       # dev-only: typescript
+npm install github:m-sanchez/training-forge#v2.0.0
+```
+
+Not yet on npm; the pinned git tag is the supported install and CI proves
+the packed tarball imports cleanly. Zero runtime dependencies.
+
+## Develop
+
+```bash
+npm ci            # dev-only: typescript
 npm test
 npm run typecheck
 ```
 
-Node 22.6+ (erasable-syntax TypeScript, node runs it directly). Zero
-runtime dependencies.
+Node 22.18+ (erasable-syntax TypeScript; node runs the sources directly).
+
+## Honest limits
+
+- Lessons are permanent by convention, not by force: `ForgeState` is a
+  plain object, and code that rewrites it can drop lessons. The forge
+  offers no API for it, which is a design stance, not a cryptographic one.
+- `Lesson.holds` is a function, so a forge state is not serializable and
+  there is no record hash or replay here; determinism holds within a
+  process, not across one. If you need frozen, replayable evaluation,
+  that is what [frozen-eval](https://github.com/m-sanchez/frozen-eval)
+  is for, and the trial slot is where it plugs in.
 
 ## The tests are the point
 
@@ -80,6 +99,8 @@ runtime dependencies.
 | a candidate that breaks an old lesson is rejected, lesson named | the immunity gate has a memory |
 | an erroring probe is unknown, and promotion refuses | an error is neither a pass nor a fail |
 | losing the trial rejects, margin on record | promotion is beaten out of the incumbent, not assumed |
-| rollback restores the archive and deletes nothing | history survives the retreat |
+| rollback restores the archive, demotes the candidate, deletes nothing | state never says promoted about what is not serving |
+| screening runs once; unknown is sticky | a flaky probe cannot be re-rolled into a pass |
+| a throwing holds predicate refuses admission | the forge contains its plug-in point |
 | new lessons bind future candidates after promotions | the suite only grows |
 | every decision is logged in order with a reason | the loop can explain itself |

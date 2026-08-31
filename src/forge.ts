@@ -38,7 +38,13 @@ export interface ImmunityResult {
   detail?: string;
 }
 
-export type CandidateStatus = 'proposed' | 'screened' | 'trialed' | 'promoted' | 'rejected';
+export type CandidateStatus =
+  | 'proposed'
+  | 'screened'
+  | 'trialed'
+  | 'promoted'
+  | 'rolled-back'
+  | 'rejected';
 
 export interface CandidateState {
   artifact: Artifact;
@@ -102,13 +108,16 @@ export async function admitLesson(state: ForgeState, lesson: Lesson, run: Run): 
   if (state.lessons.some((l) => l.id === lesson.id)) {
     return decide(state, 'admit-lesson', lesson.id, 'refused', 'a lesson with this id is already admitted');
   }
-  let output: string;
+  let held: boolean;
   try {
-    output = await run(state.incumbent, lesson.input);
+    const output = await run(state.incumbent, lesson.input);
+    held = lesson.holds(output);
   } catch (err) {
-    return decide(state, 'admit-lesson', lesson.id, 'refused', `the probe could not run on the incumbent: ${err}`);
+    // run OR holds throwing lands here: a lesson that cannot be evaluated
+    // cannot be admitted, and the forge never leaks the exception
+    return decide(state, 'admit-lesson', lesson.id, 'refused', `the probe could not be evaluated on the incumbent: ${err}`);
   }
-  if (lesson.holds(output)) {
+  if (held) {
     return decide(
       state,
       'admit-lesson',
@@ -154,8 +163,10 @@ function withCandidate(state: ForgeState, id: string, patch: Partial<CandidateSt
  * until someone finds out. */
 export async function screen(state: ForgeState, candidateId: string, run: Run): Promise<Step> {
   const candidate = requireCandidate(state, candidateId);
-  if (candidate.status !== 'proposed' && candidate.status !== 'screened') {
-    return decide(state, 'screen', candidateId, 'refused', `cannot screen a ${candidate.status} candidate`);
+  if (candidate.status !== 'proposed') {
+    // one screening per candidate: re-running until a flaky probe passes
+    // would let unknown quietly become held
+    return decide(state, 'screen', candidateId, 'refused', `cannot screen a ${candidate.status} candidate; screening runs once and unknown stays sticky`);
   }
   const immunity: ImmunityResult[] = [];
   for (const lesson of state.lessons) {
@@ -257,8 +268,13 @@ export function rollback(state: ForgeState, reason: string): Step {
   if (!previous) {
     return decide(state, 'rollback', state.incumbent.id, 'refused', 'nothing archived to roll back to');
   }
+  // the candidate that was the incumbent is demoted in the record too, so
+  // state never says "promoted" about an artifact that is no longer serving
+  const demotedId = Object.values(state.candidates).find(
+    (c) => c.status === 'promoted' && c.artifact.id === state.incumbent.id
+  )?.artifact.id;
   const next: ForgeState = {
-    ...state,
+    ...(demotedId ? withCandidate(state, demotedId, { status: 'rolled-back' }) : state),
     incumbent: previous,
     archive: state.archive.slice(0, -1)
   };
