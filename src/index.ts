@@ -4,6 +4,7 @@ export {
   createForge,
   promote,
   propose,
+  rescreen,
   rollback,
   screen,
   trial

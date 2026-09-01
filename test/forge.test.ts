@@ -5,6 +5,7 @@ import {
   createForge,
   promote,
   propose,
+  rescreen,
   rollback,
   screen,
   trial
@@ -16,7 +17,11 @@ import type { Artifact, Lesson, Run } from '../src/forge.ts';
 const BEHAVIOURS: Record<string, Record<string, string>> = {
   'model-v1': { 'sum 2 and 2': '5', 'name the account': 'acct-77', 'is it raining': 'yes' },
   'model-v2': { 'sum 2 and 2': '4', 'name the account': 'acct-77', 'is it raining': 'no' },
-  'model-v2-regressive': { 'sum 2 and 2': '5', 'name the account': 'acct-77', 'is it raining': 'no' }
+  'model-v2-regressive': { 'sum 2 and 2': '5', 'name the account': 'acct-77', 'is it raining': 'no' },
+  // answers the weather, errors on arithmetic: one probe is unknowable
+  'model-partial': { 'is it raining': 'no' },
+  // holds the arithmetic lesson, breaks a lesson admitted later
+  'model-v2-drifted': { 'sum 2 and 2': '4', 'name the account': 'acct-77', 'is it raining': 'yes' }
 };
 
 const run: Run = (artifact, input) => {
@@ -234,4 +239,105 @@ test('an unknown candidate id is a logged refusal, not a thrown error', async ()
   const promoted = promote(state, 'model-typo');
   assert.equal(promoted.decision.outcome, 'refused');
   assert.match(promoted.decision.reason, /no candidate "model-typo"/);
+});
+
+/** Admitted against incumbent model-v1, which says "yes" to a dry sky. */
+const dryLesson: Lesson = {
+  id: 'lesson-dry',
+  input: 'is it raining',
+  holds: (o) => o === 'no',
+  note: 'model-v1 claims rain out of a clear sky',
+  review: { reviewedBy: 'miguel' }
+};
+
+test('promotion refuses a candidate the immunity gate has not covered', async () => {
+  // Monday: v2 is screened against every lesson admitted so far.
+  let state = await forgeWithLesson();
+  ({ state } = propose(state, art('model-v2')));
+  ({ state } = await screen(state, 'model-v2', run));
+  ({ state } = trial(state, 'model-v2', { improved: true, detail: 'exact 0.91 vs 0.74' }));
+
+  // Tuesday: a new mistake is found on the incumbent and admitted.
+  const admitted = await admitLesson(state, dryLesson, run);
+  assert.equal(admitted.decision.outcome, 'accepted');
+  state = admitted.state;
+
+  // Wednesday: v2 has never been evaluated against lesson-dry.
+  const step = promote(state, 'model-v2');
+  assert.equal(step.decision.outcome, 'refused');
+  assert.match(step.decision.reason, /lesson-dry/);
+  assert.equal(step.state.incumbent.id, 'model-v1');
+});
+
+test('a re-screen covers the lessons admitted since screening; promotion then earns it', async () => {
+  let state = await forgeWithLesson();
+  ({ state } = propose(state, art('model-v2')));
+  ({ state } = await screen(state, 'model-v2', run));
+  ({ state } = trial(state, 'model-v2', { improved: true, detail: 'exact 0.91 vs 0.74' }));
+  ({ state } = await admitLesson(state, dryLesson, run));
+  assert.equal(promote(state, 'model-v2').decision.outcome, 'refused');
+
+  const rescreened = await rescreen(state, 'model-v2', run);
+  assert.equal(rescreened.decision.outcome, 'accepted');
+  assert.match(rescreened.decision.reason, /lesson-dry/);
+  state = rescreened.state;
+  assert.deepEqual(
+    state.candidates['model-v2'].immunity,
+    [
+      { lessonId: 'lesson-sum', outcome: 'held' },
+      { lessonId: 'lesson-dry', outcome: 'held' }
+    ]
+  );
+  assert.equal(state.candidates['model-v2'].status, 'trialed', 're-screening does not undo the trial');
+
+  const step = promote(state, 'model-v2');
+  assert.equal(step.decision.outcome, 'accepted');
+  assert.equal(step.state.incumbent.id, 'model-v2');
+});
+
+test('a re-screen adds results; it never re-runs a lesson, so unknown stays sticky', async () => {
+  let state = await forgeWithLesson();
+  ({ state } = propose(state, art('model-partial')));
+  ({ state } = await screen(state, 'model-partial', run));
+  assert.deepEqual(
+    state.candidates['model-partial'].immunity.map((r) => r.outcome),
+    ['unknown']
+  );
+
+  ({ state } = await admitLesson(state, dryLesson, run));
+  const rescreened = await rescreen(state, 'model-partial', run);
+  assert.equal(rescreened.decision.outcome, 'accepted');
+  state = rescreened.state;
+  const immunity = state.candidates['model-partial'].immunity;
+  assert.equal(immunity.length, 2, 'one result per lesson, never a second');
+  assert.equal(immunity.find((r) => r.lessonId === 'lesson-sum')!.outcome, 'unknown');
+  assert.equal(immunity.find((r) => r.lessonId === 'lesson-dry')!.outcome, 'held');
+
+  // nothing outstanding: the sticky unknown cannot be re-rolled
+  const again = await rescreen(state, 'model-partial', run);
+  assert.equal(again.decision.outcome, 'refused');
+  assert.match(again.decision.reason, /unknown stays sticky/);
+
+  ({ state } = trial(state, 'model-partial', { improved: true, detail: 'somehow' }));
+  const promoted = promote(state, 'model-partial');
+  assert.equal(promoted.decision.outcome, 'refused');
+  assert.match(promoted.decision.reason, /neither a pass nor a fail/);
+});
+
+test('a re-screen that finds a broken lesson rejects the candidate, lesson named', async () => {
+  let state = await forgeWithLesson();
+  ({ state } = propose(state, art('model-v2-drifted')));
+  assert.match(
+    (await rescreen(state, 'model-v2-drifted', run)).decision.reason,
+    /proposed/,
+    're-screening is for screened candidates; screen runs first'
+  );
+  ({ state } = await screen(state, 'model-v2-drifted', run));
+  ({ state } = await admitLesson(state, dryLesson, run));
+
+  const step = await rescreen(state, 'model-v2-drifted', run);
+  assert.equal(step.decision.outcome, 'refused');
+  assert.match(step.decision.reason, /lesson-dry/);
+  assert.equal(step.state.candidates['model-v2-drifted'].status, 'rejected');
+  assert.match(step.state.candidates['model-v2-drifted'].rejectionReason!, /lesson-dry/);
 });

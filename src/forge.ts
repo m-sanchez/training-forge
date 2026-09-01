@@ -148,6 +148,13 @@ function findCandidate(state: ForgeState, id: string): CandidateState | undefine
   return Object.hasOwn(state.candidates, id) ? state.candidates[id] : undefined;
 }
 
+/** Lessons this candidate has no recorded result for: admitted after it
+ * was screened, so they bind nothing until it is re-screened. */
+function uncoveredLessons(state: ForgeState, candidate: CandidateState): Lesson[] {
+  const covered = new Set(candidate.immunity.map((r) => r.lessonId));
+  return state.lessons.filter((l) => !covered.has(l.id));
+}
+
 function withCandidate(state: ForgeState, id: string, patch: Partial<CandidateState>): ForgeState {
   return {
     ...state,
@@ -208,6 +215,71 @@ export async function screen(state: ForgeState, candidateId: string, run: Run): 
   );
 }
 
+/** Additive re-screening, for lessons admitted after this candidate was
+ * screened. It runs those lessons and only those: a result already on the
+ * record is never re-run, so an unknown cannot be re-rolled into a held.
+ * A lesson that comes back broken rejects the candidate exactly as it
+ * would at the gate. Without this, "every lesson ever admitted runs
+ * against every future candidate" would be unreachable for a candidate
+ * already in flight - promote() refuses it, and nothing could clear it. */
+export async function rescreen(state: ForgeState, candidateId: string, run: Run): Promise<Step> {
+  const candidate = findCandidate(state, candidateId);
+  if (!candidate) {
+    return decide(state, 're-screen', candidateId, 'refused', `no candidate "${candidateId}"`);
+  }
+  if (candidate.status !== 'screened' && candidate.status !== 'trialed') {
+    return decide(state, 're-screen', candidateId, 'refused', `cannot re-screen a ${candidate.status} candidate; screening comes first`);
+  }
+  const outstanding = uncoveredLessons(state, candidate);
+  if (outstanding.length === 0) {
+    return decide(
+      state,
+      're-screen',
+      candidateId,
+      'refused',
+      'every admitted lesson already has a result; a recorded result is never re-run and unknown stays sticky'
+    );
+  }
+  const added: ImmunityResult[] = [];
+  for (const lesson of outstanding) {
+    try {
+      const output = await run(candidate.artifact, lesson.input);
+      added.push(
+        lesson.holds(output)
+          ? { lessonId: lesson.id, outcome: 'held' }
+          : { lessonId: lesson.id, outcome: 'broken', detail: lesson.note }
+      );
+    } catch (err) {
+      added.push({ lessonId: lesson.id, outcome: 'unknown', detail: `probe error: ${err}` });
+    }
+  }
+  const immunity = [...candidate.immunity, ...added];
+  const broken = added.filter((r) => r.outcome === 'broken');
+  const unknown = added.filter((r) => r.outcome === 'unknown');
+  const names = added.map((r) => r.lessonId).join(', ');
+  if (broken.length > 0) {
+    const reason = `broke ${broken.length} lesson(s) admitted since screening: ${broken.map((b) => b.lessonId).join(', ')}`;
+    return decide(
+      withCandidate(state, candidateId, { status: 'rejected', immunity, rejectionReason: reason }),
+      're-screen',
+      candidateId,
+      'refused',
+      reason
+    );
+  }
+  return decide(
+    withCandidate(state, candidateId, { immunity }),
+    're-screen',
+    candidateId,
+    'accepted',
+    unknown.length > 0
+      ? `covered ${added.length} lesson(s) admitted since screening (${names}); ${unknown.length} unknown (${unknown
+          .map((u) => u.lessonId)
+          .join(', ')}) - unpromotable until resolved`
+      : `covered ${added.length} lesson(s) admitted since screening: ${names}; all held`
+  );
+}
+
 /** Record the trial verdict. The forge does not score candidates; your
  * eval does (frozen-eval pairs well). Losing the trial rejects. */
 export function trial(state: ForgeState, candidateId: string, verdict: { improved: boolean; detail: string }): Step {
@@ -246,6 +318,19 @@ export function promote(state: ForgeState, candidateId: string): Step {
   }
   if (candidate.status !== 'trialed') {
     return decide(state, 'promote', candidateId, 'refused', `only a trialed candidate can be promoted (is: ${candidate.status})`);
+  }
+  // "every lesson ever admitted" includes the ones admitted after this
+  // candidate was screened: a lesson with no result binds nothing
+  const uncovered = uncoveredLessons(state, candidate);
+  if (uncovered.length > 0) {
+    return decide(
+      state,
+      'promote',
+      candidateId,
+      'refused',
+      `no immunity result for: ${uncovered.map((l) => l.id).join(', ')}; ` +
+        `${uncovered.length} lesson(s) admitted since screening - re-screen this candidate`
+    );
   }
   const unknown = candidate.immunity.filter((r) => r.outcome === 'unknown');
   if (unknown.length > 0) {
