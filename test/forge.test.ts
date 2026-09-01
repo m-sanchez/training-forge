@@ -217,3 +217,21 @@ test('rollback demotes the rolled-back candidate in the record', async () => {
   assert.equal(state.incumbent.id, 'model-v1');
   assert.equal(state.candidates['model-v2'].status, 'rolled-back');
 });
+
+test('an unknown candidate id is a logged refusal, not a thrown error', async () => {
+  const state = await forgeWithLesson();
+
+  const screened = await screen(state, 'model-typo', run);
+  assert.equal(screened.decision.outcome, 'refused');
+  assert.match(screened.decision.reason, /no candidate "model-typo"/);
+  assert.equal(screened.decision.action, 'screen');
+  assert.equal(screened.state.decisions.length, state.decisions.length + 1);
+
+  const tried = trial(state, 'model-typo', { improved: true, detail: 'x' });
+  assert.equal(tried.decision.outcome, 'refused');
+  assert.match(tried.decision.reason, /no candidate "model-typo"/);
+
+  const promoted = promote(state, 'model-typo');
+  assert.equal(promoted.decision.outcome, 'refused');
+  assert.match(promoted.decision.reason, /no candidate "model-typo"/);
+});

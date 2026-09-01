@@ -144,10 +144,8 @@ export function propose(state: ForgeState, artifact: Artifact): Step {
   return decide(next, 'propose', artifact.id, 'accepted', 'candidate enters the loop at the immunity gate');
 }
 
-function requireCandidate(state: ForgeState, id: string): CandidateState {
-  const candidate = state.candidates[id];
-  if (!candidate) throw new ForgeError(`no candidate "${id}"`);
-  return candidate;
+function findCandidate(state: ForgeState, id: string): CandidateState | undefined {
+  return Object.hasOwn(state.candidates, id) ? state.candidates[id] : undefined;
 }
 
 function withCandidate(state: ForgeState, id: string, patch: Partial<CandidateState>): ForgeState {
@@ -162,7 +160,10 @@ function withCandidate(state: ForgeState, id: string, patch: Partial<CandidateSt
  * errored) neither passes nor fails: the candidate stays unpromotable
  * until someone finds out. */
 export async function screen(state: ForgeState, candidateId: string, run: Run): Promise<Step> {
-  const candidate = requireCandidate(state, candidateId);
+  const candidate = findCandidate(state, candidateId);
+  if (!candidate) {
+    return decide(state, 'screen', candidateId, 'refused', `no candidate "${candidateId}"`);
+  }
   if (candidate.status !== 'proposed') {
     // one screening per candidate: re-running until a flaky probe passes
     // would let unknown quietly become held
@@ -210,7 +211,10 @@ export async function screen(state: ForgeState, candidateId: string, run: Run): 
 /** Record the trial verdict. The forge does not score candidates; your
  * eval does (frozen-eval pairs well). Losing the trial rejects. */
 export function trial(state: ForgeState, candidateId: string, verdict: { improved: boolean; detail: string }): Step {
-  const candidate = requireCandidate(state, candidateId);
+  const candidate = findCandidate(state, candidateId);
+  if (!candidate) {
+    return decide(state, 'trial', candidateId, 'refused', `no candidate "${candidateId}"`);
+  }
   if (candidate.status !== 'screened') {
     return decide(state, 'trial', candidateId, 'refused', `only a screened candidate can stand trial (is: ${candidate.status})`);
   }
@@ -236,7 +240,10 @@ export function trial(state: ForgeState, candidateId: string, verdict: { improve
 /** Promotion: all lessons held, no unknowns outstanding, trial won. The
  * incumbent is archived, not discarded - rollback is one call away. */
 export function promote(state: ForgeState, candidateId: string): Step {
-  const candidate = requireCandidate(state, candidateId);
+  const candidate = findCandidate(state, candidateId);
+  if (!candidate) {
+    return decide(state, 'promote', candidateId, 'refused', `no candidate "${candidateId}"`);
+  }
   if (candidate.status !== 'trialed') {
     return decide(state, 'promote', candidateId, 'refused', `only a trialed candidate can be promoted (is: ${candidate.status})`);
   }
