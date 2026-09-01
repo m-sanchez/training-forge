@@ -9,6 +9,7 @@ export {
   screen,
   trial
 } from './forge.ts';
+export { SNAPSHOT_VERSION, hydrateForge, serializeForge } from './persist.ts';
 export type {
   Artifact,
   CandidateState,
@@ -21,3 +22,4 @@ export type {
   Run,
   Step
 } from './forge.ts';
+export type { ForgeSnapshot, LessonSnapshot, PredicateRegistry } from './persist.ts';

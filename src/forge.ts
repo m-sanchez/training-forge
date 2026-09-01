@@ -23,6 +23,10 @@ export interface Lesson {
   input: string;
   /** does this output honour the lesson? */
   holds: (output: string) => boolean;
+  /** the registry key that names `holds`, if this forge is to be
+   * serialized: functions do not survive JSON, keys do. Required by
+   * serializeForge, ignored by the state machine itself. */
+  predicate?: string;
   note: string;
   /** well-formed is not approved; a person signs every lesson */
   review: { reviewedBy: string; note?: string };
