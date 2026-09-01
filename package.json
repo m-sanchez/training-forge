@@ -21,6 +21,7 @@
     "test": "node --test \"test/*.test.ts\"",
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json",
+    "example": "node examples/loop.ts",
     "prepare": "npm run build"
   },
   "repository": {
