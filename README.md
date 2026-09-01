@@ -5,6 +5,7 @@
 ![Dependencies](https://img.shields.io/badge/dependencies-0-B45309)
 [![CI](https://github.com/m-sanchez/training-forge/actions/workflows/test.yml/badge.svg)](https://github.com/m-sanchez/training-forge/actions/workflows/test.yml)
 ![License](https://img.shields.io/badge/license-MIT-6E6E6E)
+[![npm](https://img.shields.io/npm/v/@m-sanchez/training-forge?color=CB3837&logo=npm&logoColor=white)](https://www.npmjs.com/package/@m-sanchez/training-forge)
 
 > **In plain English:** a model learns from corrections safely: a new version ships only if it provably beats the old one, and you can undo it instantly if it goes wrong.
 
@@ -15,6 +16,9 @@ thing through.
 [More tools](https://github.com/m-sanchez) ·
 [Working rules](https://miguelsanchez.co.uk/ethics) ·
 [The case study](https://miguelsanchez.co.uk)
+
+*Provenance: this came out of one body of production LLM work, extracted and
+generalised into a standalone package. First published 2026-08-31.*
 
 ```
 mistake -> lesson -> immunity gate -> trial -> promote | rollback
@@ -42,7 +46,7 @@ an artifact. Same inputs, same forge, every time.
   deletes nothing: decisions and lessons survive.
 
 ```ts
-import { createForge, admitLesson, propose, screen, trial, promote, rollback } from 'training-forge';
+import { createForge, admitLesson, propose, screen, trial, promote, rollback } from '@m-sanchez/training-forge';
 
 let state = createForge({ id: 'model-v1', ref: 'ollama:mine:v1' });
 
@@ -65,11 +69,12 @@ state.decisions;   // every step, in order, with its reason
 ## Install
 
 ```bash
-npm install github:m-sanchez/training-forge#v2.0.0
+npm install @m-sanchez/training-forge
 ```
 
-Not yet on npm; the pinned git tag is the supported install and CI proves
-the packed tarball imports cleanly. Zero runtime dependencies.
+Also installable from a pinned git tag:
+`github:m-sanchez/training-forge#v2.0.1`. CI proves the packed tarball
+imports cleanly. Zero runtime dependencies.
 
 ## Develop
 
