@@ -381,3 +381,47 @@ test('a trial cannot be recorded against an incumbent that has moved on', async 
   assert.match(step.decision.reason, /model-v1.*model-v3|model-v3/);
   assert.equal(step.state.candidates['model-v2'].status, 'screened', 'the stale verdict is not recorded');
 });
+
+test('a pure state machine: same inputs, same forge, and the state handed in is untouched', async () => {
+  const build = async () => {
+    let state = await forgeWithLesson();
+    ({ state } = propose(state, art('model-v2')));
+    ({ state } = await screen(state, 'model-v2', run));
+    ({ state } = trial(state, 'model-v2', { improved: true, detail: 'exact 0.91 vs 0.74' }));
+    ({ state } = promote(state, 'model-v2'));
+    return state;
+  };
+  const first = await build();
+  const second = await build();
+  assert.deepEqual(second.decisions, first.decisions, 'no clock, no generated id, no I/O');
+  assert.deepEqual(second.candidates, first.candidates);
+  assert.deepEqual(second.incumbent, first.incumbent);
+  assert.deepEqual(second.archive, first.archive);
+
+  // every step returns a new forge; the one handed in is never edited
+  const before = await forgeWithLesson();
+  const decisions = [...before.decisions];
+  const candidates = { ...before.candidates };
+  const step = propose(before, art('model-v2'));
+  assert.notEqual(step.state, before);
+  assert.deepEqual(before.decisions, decisions);
+  assert.deepEqual(before.candidates, candidates);
+});
+
+test('there is no removal API: the public surface cannot unlearn a lesson', async () => {
+  const surface = Object.keys(await import('../src/index.ts'));
+  assert.deepEqual(surface, [
+    'ForgeError',
+    'SNAPSHOT_VERSION',
+    'admitLesson',
+    'createForge',
+    'hydrateForge',
+    'promote',
+    'propose',
+    'rescreen',
+    'rollback',
+    'screen',
+    'serializeForge',
+    'trial'
+  ]);
+});
