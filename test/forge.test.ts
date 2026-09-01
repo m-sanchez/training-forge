@@ -20,6 +20,8 @@ const BEHAVIOURS: Record<string, Record<string, string>> = {
   'model-v2-regressive': { 'sum 2 and 2': '5', 'name the account': 'acct-77', 'is it raining': 'no' },
   // answers the weather, errors on arithmetic: one probe is unknowable
   'model-partial': { 'is it raining': 'no' },
+  // a second candidate in flight at the same time as model-v2
+  'model-v3': { 'sum 2 and 2': '4', 'name the account': 'acct-77', 'is it raining': 'no' },
   // holds the arithmetic lesson, breaks a lesson admitted later
   'model-v2-drifted': { 'sum 2 and 2': '4', 'name the account': 'acct-77', 'is it raining': 'yes' }
 };
@@ -340,4 +342,42 @@ test('a re-screen that finds a broken lesson rejects the candidate, lesson named
   assert.match(step.decision.reason, /lesson-dry/);
   assert.equal(step.state.candidates['model-v2-drifted'].status, 'rejected');
   assert.match(step.state.candidates['model-v2-drifted'].rejectionReason!, /lesson-dry/);
+});
+
+test('a candidate is bound to the incumbent it was proposed against', async () => {
+  let state = await forgeWithLesson();
+  ({ state } = propose(state, art('model-v2')));
+  ({ state } = await screen(state, 'model-v2', run));
+  ({ state } = trial(state, 'model-v2', { improved: true, detail: 'exact 0.91 vs 0.74' }));
+  assert.equal(state.candidates['model-v2'].basedOn, 'model-v1');
+
+  // a second experiment, running in parallel, wins the race
+  ({ state } = propose(state, art('model-v3')));
+  ({ state } = await screen(state, 'model-v3', run));
+  ({ state } = trial(state, 'model-v3', { improved: true, detail: 'exact 0.93 vs 0.74' }));
+  ({ state } = promote(state, 'model-v3'));
+  assert.equal(state.incumbent.id, 'model-v3');
+
+  // v2's trial was won against model-v1, which is no longer serving
+  const step = promote(state, 'model-v2');
+  assert.equal(step.decision.outcome, 'refused');
+  assert.match(step.decision.reason, /model-v3/);
+  assert.equal(step.state.incumbent.id, 'model-v3');
+  assert.deepEqual(step.state.archive.map((a) => a.id), ['model-v1']);
+});
+
+test('a trial cannot be recorded against an incumbent that has moved on', async () => {
+  let state = await forgeWithLesson();
+  ({ state } = propose(state, art('model-v2')));
+  ({ state } = await screen(state, 'model-v2', run));
+
+  ({ state } = propose(state, art('model-v3')));
+  ({ state } = await screen(state, 'model-v3', run));
+  ({ state } = trial(state, 'model-v3', { improved: true, detail: 'exact 0.93 vs 0.74' }));
+  ({ state } = promote(state, 'model-v3'));
+
+  const step = trial(state, 'model-v2', { improved: true, detail: 'exact 0.91 vs 0.74' });
+  assert.equal(step.decision.outcome, 'refused');
+  assert.match(step.decision.reason, /model-v1.*model-v3|model-v3/);
+  assert.equal(step.state.candidates['model-v2'].status, 'screened', 'the stale verdict is not recorded');
 });

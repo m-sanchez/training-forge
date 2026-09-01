@@ -49,6 +49,11 @@ export type CandidateStatus =
 export interface CandidateState {
   artifact: Artifact;
   status: CandidateStatus;
+  /** the incumbent this candidate was proposed against: the model its
+   * trial verdict is a comparison with. If the incumbent moves while the
+   * candidate is in flight, the verdict is about a model no longer
+   * serving, and trial/promote refuse. */
+  basedOn: string;
   immunity: ImmunityResult[];
   trial?: { improved: boolean; detail: string };
   rejectionReason?: string;
@@ -138,14 +143,26 @@ export function propose(state: ForgeState, artifact: Artifact): Step {
     ...state,
     candidates: {
       ...state.candidates,
-      [artifact.id]: { artifact, status: 'proposed', immunity: [] }
+      [artifact.id]: { artifact, status: 'proposed', basedOn: state.incumbent.id, immunity: [] }
     }
   };
-  return decide(next, 'propose', artifact.id, 'accepted', 'candidate enters the loop at the immunity gate');
+  return decide(next, 'propose', artifact.id, 'accepted', `candidate enters the loop at the immunity gate, against ${state.incumbent.id}`);
 }
 
 function findCandidate(state: ForgeState, id: string): CandidateState | undefined {
   return Object.hasOwn(state.candidates, id) ? state.candidates[id] : undefined;
+}
+
+/** A candidate's trial is a comparison with the incumbent it was proposed
+ * against. If that incumbent has been replaced, the comparison is with a
+ * model that no longer serves, and nothing here can rescue it: only a new
+ * measurement can. Returns the reason to refuse, or undefined. */
+function incumbentMoved(state: ForgeState, candidate: CandidateState): string | undefined {
+  if (state.incumbent.id === candidate.basedOn) return undefined;
+  return (
+    `the incumbent moved from ${candidate.basedOn} to ${state.incumbent.id} since this candidate ` +
+    `was proposed; it was measured against a model that no longer serves - propose it again against ${state.incumbent.id}`
+  );
 }
 
 /** Lessons this candidate has no recorded result for: admitted after it
@@ -290,6 +307,10 @@ export function trial(state: ForgeState, candidateId: string, verdict: { improve
   if (candidate.status !== 'screened') {
     return decide(state, 'trial', candidateId, 'refused', `only a screened candidate can stand trial (is: ${candidate.status})`);
   }
+  const moved = incumbentMoved(state, candidate);
+  if (moved) {
+    return decide(state, 'trial', candidateId, 'refused', moved);
+  }
   if (!verdict.improved) {
     const reason = `did not beat the incumbent: ${verdict.detail}`;
     return decide(
@@ -318,6 +339,10 @@ export function promote(state: ForgeState, candidateId: string): Step {
   }
   if (candidate.status !== 'trialed') {
     return decide(state, 'promote', candidateId, 'refused', `only a trialed candidate can be promoted (is: ${candidate.status})`);
+  }
+  const moved = incumbentMoved(state, candidate);
+  if (moved) {
+    return decide(state, 'promote', candidateId, 'refused', moved);
   }
   // "every lesson ever admitted" includes the ones admitted after this
   // candidate was screened: a lesson with no result binds nothing
