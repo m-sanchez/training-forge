@@ -6,6 +6,8 @@
 [![CI](https://github.com/m-sanchez/training-forge/actions/workflows/test.yml/badge.svg)](https://github.com/m-sanchez/training-forge/actions/workflows/test.yml)
 ![License](https://img.shields.io/badge/license-MIT-6E6E6E)
 
+> **In plain English:** a model learns from corrections safely: a new version ships only if it provably beats the old one, and you can undo it instantly if it goes wrong.
+
 Gated self-improvement. A model that learns from itself can just as easily
 learn the wrong thing; the forge is the loop that only lets the right
 thing through.
