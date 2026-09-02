@@ -166,7 +166,7 @@ npm install @m-sanchez/training-forge
 ```
 
 Also installable from a pinned git tag, e.g.
-`github:m-sanchez/training-forge#v2.0.1`. That path runs the `prepare`
+`github:m-sanchez/training-forge#v3.0.0`. That path runs the `prepare`
 build at install time; what CI proves is the npm path - it packs the
 tarball and imports it. Zero runtime dependencies.
 
